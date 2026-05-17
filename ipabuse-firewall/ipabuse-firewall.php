@@ -26,7 +26,11 @@ define( 'IPABUSE_OPT_PREFIX', 'ipabuse_' );
 require_once IPABUSE_PLUGIN_DIR . 'includes/class-api-client.php';
 require_once IPABUSE_PLUGIN_DIR . 'includes/class-blocker.php';
 require_once IPABUSE_PLUGIN_DIR . 'includes/class-reporter.php';
+require_once IPABUSE_PLUGIN_DIR . 'includes/class-updater.php';
 require_once IPABUSE_PLUGIN_DIR . 'admin/settings-page.php';
+
+// ── Auto-update registration ──────────────────────────────────────────────────
+new IPAbuse_Updater( IPABUSE_PLUGIN_FILE );
 
 // ── Activation / deactivation ─────────────────────────────────────────────────
 register_activation_hook( __FILE__, 'ipabuse_activate' );
