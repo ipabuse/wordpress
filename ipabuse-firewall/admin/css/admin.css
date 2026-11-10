@@ -1,0 +1,316 @@
+.ipabuse-wrap h1 {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.ipabuse-wrap h1 .dashicons {
+	font-size: 28px;
+	width: 28px;
+	height: 28px;
+	color: #2271b1;
+}
+
+.ipabuse-status-banner {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+	margin: 16px 0;
+	padding: 10px 16px;
+	border-radius: 4px;
+	border-left: 4px solid;
+	background: #fff;
+	box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+.ipabuse-status-banner.is-active {
+	border-left-color: #00a32a;
+}
+
+.ipabuse-status-banner.is-active .dashicons {
+	color: #00a32a;
+}
+
+.ipabuse-status-banner.is-inactive {
+	border-left-color: #d63638;
+}
+
+.ipabuse-status-banner.is-inactive .dashicons {
+	color: #d63638;
+}
+
+.ipabuse-status-sep {
+	color: #c3c4c7;
+}
+
+.ipabuse-card {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	padding: 16px 20px;
+	margin-bottom: 20px;
+	max-width: 960px;
+}
+
+.ipabuse-card-title {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 0;
+	padding-bottom: 8px;
+	border-bottom: 1px solid #f0f0f1;
+}
+
+.ipabuse-card-title .dashicons {
+	color: #646970;
+}
+
+.ipabuse-actions-row {
+	display: flex;
+	gap: 12px;
+	align-items: center;
+}
+
+.ipabuse-actions-row form {
+	margin: 0;
+}
+
+.ipabuse-lookup-form {
+	display: flex;
+	gap: 10px;
+	align-items: center;
+	margin-bottom: 10px;
+}
+
+.ipabuse-lookup-input {
+	width: 200px;
+}
+
+.ipabuse-lookup-spinner {
+	float: none;
+	margin: 0;
+}
+
+.ipabuse-lookup-result {
+	max-width: 500px;
+}
+
+.ipabuse-badge {
+	display: inline-block;
+	padding: 2px 10px;
+	border-radius: 12px;
+	font-weight: 600;
+}
+
+.ipabuse-badge--high {
+	background: #fcf0f1;
+	color: #a61b22;
+}
+
+.ipabuse-badge--medium {
+	background: #fcf9e8;
+	color: #7a5300;
+}
+
+.ipabuse-badge--low {
+	background: #edfaef;
+	color: #00631b;
+}
+
+.ipabuse-search-form {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	margin-bottom: 16px;
+}
+
+.ipabuse-inline-form {
+	margin: 0;
+}
+
+.ipabuse-pagination {
+	margin-top: 16px;
+}
+
+.ipabuse-pagination .page-numbers {
+	display: inline-block;
+	padding: 4px 10px;
+	margin-right: 4px;
+	border: 1px solid #c3c4c7;
+	border-radius: 3px;
+	text-decoration: none;
+}
+
+.ipabuse-pagination .page-numbers.current {
+	background: #2271b1;
+	color: #fff;
+	border-color: #2271b1;
+}
+
+/* Dashboard widget */
+.ipabuse-widget-status {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-weight: 600;
+	margin-bottom: 12px;
+}
+
+.ipabuse-widget-status.is-active {
+	color: #00a32a;
+}
+
+.ipabuse-widget-status.is-inactive {
+	color: #d63638;
+}
+
+.ipabuse-widget-stats {
+	display: flex;
+	gap: 16px;
+	margin: 0 0 14px;
+	padding: 0;
+}
+
+.ipabuse-widget-stats li {
+	flex: 1;
+	list-style: none;
+	text-align: center;
+	background: #f6f7f7;
+	border-radius: 4px;
+	padding: 10px 4px;
+}
+
+.ipabuse-widget-stat-value {
+	display: block;
+	font-size: 20px;
+	font-weight: 700;
+	color: #1d2327;
+}
+
+.ipabuse-widget-stat-label {
+	display: block;
+	font-size: 11px;
+	color: #3c434a;
+	text-transform: uppercase;
+	letter-spacing: 0.3px;
+}
+
+.ipabuse-widget-footer {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin: 0;
+}
+
+.ipabuse-widget-trend {
+	margin-bottom: 14px;
+}
+
+.ipabuse-widget-trend-label {
+	display: block;
+	font-size: 11px;
+	color: #3c434a;
+	text-transform: uppercase;
+	letter-spacing: 0.3px;
+	margin-bottom: 4px;
+}
+
+.ipabuse-sparkline {
+	width: 100%;
+	height: 40px;
+	color: #2271b1;
+}
+
+.ipabuse-bulk-actions-bar {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	margin: 12px 0;
+}
+
+.ipabuse-card table.widefat .check-column {
+	width: 2.2em;
+	padding: 8px 0 8px 10px;
+}
+
+.ipabuse-danger-zone {
+	border-color: #d63638;
+}
+
+.ipabuse-danger-zone .ipabuse-card-title .dashicons {
+	color: #d63638;
+}
+
+.ipabuse-country-picker {
+	max-width: 500px;
+}
+
+.ipabuse-country-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-bottom: 8px;
+	min-height: 0;
+}
+
+.ipabuse-country-chips:empty {
+	margin-bottom: 0;
+}
+
+.ipabuse-country-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	background: #2271b1;
+	color: #fff;
+	font-size: 12px;
+	font-weight: 600;
+	padding: 3px 4px 3px 10px;
+	border-radius: 12px;
+}
+
+.ipabuse-country-chip-remove {
+	background: none;
+	border: none;
+	color: #fff;
+	cursor: pointer;
+	font-size: 14px;
+	line-height: 1;
+	padding: 2px 6px;
+}
+
+.ipabuse-country-list {
+	list-style: none;
+	margin: 8px 0 0;
+	padding: 4px 0;
+	max-height: 220px;
+	overflow-y: auto;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	background: #fff;
+}
+
+.ipabuse-country-option {
+	padding: 4px 12px;
+}
+
+.ipabuse-country-option label {
+	display: block;
+	cursor: pointer;
+}
+
+.ipabuse-country-code {
+	color: #646970;
+}
+
+.ipabuse-lookup-actions {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	margin-top: 12px;
+}
+
+.ipabuse-report-form select {
+	max-width: 160px;
+}

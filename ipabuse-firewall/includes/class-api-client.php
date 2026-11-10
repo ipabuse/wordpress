@@ -48,12 +48,18 @@ class IPAbuse_Api_Client {
 		return $this->get( '/lookup/' . rawurlencode( $ip ) );
 	}
 
-	/** Submit an abuse report. */
+	/** Submit an abuse report. Tagged with pluginSource=WORDPRESS so reports are attributable by origin. */
 	public function report( string $ip, string $category = 'BRUTE_FORCE', string $description = '', int $severity = 3 ): array {
 		if ( ! filter_var( $ip, FILTER_VALIDATE_IP ) ) {
 			return [ 'ok' => false, 'error' => 'Invalid IP address' ];
 		}
-		return $this->post( '/report', compact( 'ip', 'category', 'description', 'severity' ) );
+		return $this->post( '/report', [
+			'ip'           => $ip,
+			'category'     => $category,
+			'description'  => $description,
+			'severity'     => $severity,
+			'pluginSource' => 'WORDPRESS',
+		] );
 	}
 
 	// ── Private ───────────────────────────────────────────────────────────────
