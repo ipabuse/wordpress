@@ -1,10 +1,10 @@
 === IPAbuse Firewall ===
 Contributors: ipabuse
 Tags: security, firewall, brute force, ip blocking, login protection
-Requires at least: 5.9
+Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.5.0
+Stable tag: 1.6.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,16 @@ When "Report Failed Logins" is enabled (on by default), the plugin automatically
 No. Private and loopback IP ranges are never blocked or reported.
 
 == Changelog ==
+
+= 1.6.0 =
+* Added a "Connect Your Account" setup wizard (Dashboard and Settings pages): prefills this site's URL and admin email, starts account creation on ipabuse.org, and tells you to verify your email there. The API key itself still has to be generated and pasted in by hand — the wizard never receives or stores it on your behalf.
+
+= 1.5.2 =
+* Added an object-cache layer for the blocked-IP count, invalidated automatically whenever the blocklist changes.
+* Added a "Clear Cache" action — a Settings page button and a `wp ipabuse clear-cache` CLI command — to flush the plugin's cache on demand (e.g. after restoring a database backup).
+
+= 1.5.1 =
+* Now requires WordPress 6.2+ (up from 5.9), so all custom-table queries can bind table names through `$wpdb->prepare()`'s `%i` identifier placeholder instead of raw string interpolation.
 
 = 1.5.0 =
 * Added manual IP blocking and manual reporting to ipabuse.org, from the IP Lookup page (Block This IP / Report to ipabuse.org with a category picker) and via new `wp ipabuse block|report` CLI commands.

@@ -20,16 +20,18 @@ function ipabuse_uninstall_site(): void {
 	}
 
 	global $wpdb;
-	$wpdb->query( 'DROP TABLE IF EXISTS `' . $wpdb->prefix . 'ipabuse_blocked`' ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-	$wpdb->query( 'DROP TABLE IF EXISTS `' . $wpdb->prefix . 'ipabuse_block_history`' ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- uninstall.php is the one place a plugin is expected to drop its own custom tables.
+	$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $wpdb->prefix . 'ipabuse_blocked' ) );
+	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- same as above.
+	$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $wpdb->prefix . 'ipabuse_block_history' ) );
 
 	wp_clear_scheduled_hook( 'ipabuse_sync_cron' );
 }
 
 if ( is_multisite() ) {
-	$site_ids = get_sites( [ 'fields' => 'ids' ] );
-	foreach ( $site_ids as $site_id ) {
-		switch_to_blog( $site_id );
+	$ipabuse_site_ids = get_sites( [ 'fields' => 'ids' ] );
+	foreach ( $ipabuse_site_ids as $ipabuse_site_id ) {
+		switch_to_blog( $ipabuse_site_id );
 		ipabuse_uninstall_site();
 		restore_current_blog();
 	}

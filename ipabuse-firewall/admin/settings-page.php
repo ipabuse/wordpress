@@ -26,6 +26,22 @@ function ipabuse_handle_clear_all(): void {
 	exit;
 }
 
+add_action( 'admin_post_ipabuse_clear_cache', 'ipabuse_handle_clear_cache' );
+
+/** Handle the "Clear Cache" danger-zone action. */
+function ipabuse_handle_clear_cache(): void {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_die( esc_html__( 'Permission denied.', 'ipabuse-firewall' ), '', [ 'response' => 403 ] );
+	}
+	check_admin_referer( 'ipabuse_clear_cache' );
+
+	IPAbuse_Blocker::clear_cache();
+
+	$redirect = add_query_arg( 'ipabuse_cache_cleared', '1', admin_url( 'admin.php?page=' . IPABUSE_MENU_SLUG . '-settings' ) );
+	wp_safe_redirect( $redirect );
+	exit;
+}
+
 /** Register all plugin settings. */
 function ipabuse_register_settings(): void {
 	$opts = [
@@ -117,14 +133,17 @@ function ipabuse_export_settings(): void {
  * @return string  Empty on success, otherwise a human-readable error.
  */
 function ipabuse_import_settings_from_upload(): string {
-	if ( empty( $_FILES['ipabuse_import_file']['tmp_name'] ) || ! is_uploaded_file( $_FILES['ipabuse_import_file']['tmp_name'] ) ) {
+	// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce already verified by check_admin_referer( 'ipabuse_import_settings' ) in the only caller, before this function runs; is_uploaded_file() below is the real safeguard against an arbitrary path.
+	$tmp_name = $_FILES['ipabuse_import_file']['tmp_name'] ?? '';
+	if ( empty( $tmp_name ) || ! is_uploaded_file( $tmp_name ) ) {
 		return __( 'Please choose a settings file to upload.', 'ipabuse-firewall' );
 	}
-	if ( ( $_FILES['ipabuse_import_file']['size'] ?? 0 ) > 100 * 1024 ) {
+	// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- same as above; size is only ever compared numerically.
+	if ( (int) ( $_FILES['ipabuse_import_file']['size'] ?? 0 ) > 100 * 1024 ) {
 		return __( 'File is too large to be a valid settings export.', 'ipabuse-firewall' );
 	}
 
-	$contents = file_get_contents( $_FILES['ipabuse_import_file']['tmp_name'] ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+	$contents = file_get_contents( $tmp_name ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- tmp_name is PHP's own validated upload path (is_uploaded_file() above), not user-supplied.
 	$data     = json_decode( (string) $contents, true );
 
 	if ( ! is_array( $data ) ) {
@@ -202,12 +221,20 @@ function ipabuse_settings_page(): void {
 			? '<div class="notice notice-success is-dismissible"><p>' . esc_html( sprintf( __( 'Cleared %d blocked IPs.', 'ipabuse-firewall' ), $cleared ) ) . '</p></div>'
 			: '<div class="notice notice-warning is-dismissible"><p>' . esc_html__( 'Nothing was cleared — confirmation checkbox was not checked.', 'ipabuse-firewall' ) . '</p></div>';
 	}
+
+	$cache_cleared_notice = isset( $_GET['ipabuse_cache_cleared'] )
+		? '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Cache cleared.', 'ipabuse-firewall' ) . '</p></div>'
+		: '';
 	?>
 	<div class="wrap ipabuse-wrap">
 		<?php
 		ipabuse_render_page_header( __( 'IPAbuse Firewall Settings', 'ipabuse-firewall' ), 'admin-generic' );
 		echo wp_kses_post( $import_notice );
 		echo wp_kses_post( $cleared_notice );
+		echo wp_kses_post( $cache_cleared_notice );
+		if ( '' === ipabuse_opt( 'api_key', '' ) ) {
+			ipabuse_render_connect_wizard_modal();
+		}
 		?>
 
 		<form method="post" action="options.php">
@@ -228,6 +255,11 @@ function ipabuse_settings_page(): void {
 								class="regular-text" placeholder="<?php esc_attr_e( 'Enter your ipabuse.org API key', 'ipabuse-firewall' ); ?>" />
 							<p class="description">
 								<a href="https://www.ipabuse.org/settings?tab=api" target="_blank" rel="noopener"><?php esc_html_e( 'Generate an API key', 'ipabuse-firewall' ); ?></a>
+								<?php if ( '' === ipabuse_opt( 'api_key', '' ) ) : ?>
+									&mdash;
+									<?php esc_html_e( "don't have an account yet?", 'ipabuse-firewall' ); ?>
+									<button type="button" class="button-link ipabuse-connect-trigger"><?php esc_html_e( 'Connect Your Account', 'ipabuse-firewall' ); ?></button>
+								<?php endif; ?>
 							</p>
 						</td>
 					</tr>
@@ -319,6 +351,7 @@ function ipabuse_settings_page(): void {
 					<span class="dashicons dashicons-groups" aria-hidden="true"></span>
 					<?php esc_html_e( 'Trusted IPs (Allowlist)', 'ipabuse-firewall' ); ?>
 				</h2>
+				<label for="ipabuse_allowlist" class="screen-reader-text"><?php esc_html_e( 'Trusted IPs (Allowlist)', 'ipabuse-firewall' ); ?></label>
 				<textarea name="ipabuse_allowlist" id="ipabuse_allowlist" rows="5"
 					class="large-text code"><?php echo esc_textarea( ipabuse_opt( 'allowlist', '' ) ); ?></textarea>
 				<p class="description"><?php esc_html_e( 'One IP address per line. These IPs are never blocked or reported, even if flagged by ipabuse.org or local rate-limiting.', 'ipabuse-firewall' ); ?></p>
@@ -376,7 +409,8 @@ function ipabuse_settings_page(): void {
 				</a>
 				<form method="post" enctype="multipart/form-data" class="ipabuse-inline-form">
 					<?php wp_nonce_field( 'ipabuse_import_settings' ); ?>
-					<input type="file" name="ipabuse_import_file" accept="application/json" required />
+					<label for="ipabuse_import_file" class="screen-reader-text"><?php esc_html_e( 'Settings file to import', 'ipabuse-firewall' ); ?></label>
+					<input type="file" name="ipabuse_import_file" id="ipabuse_import_file" accept="application/json" required />
 					<?php submit_button( __( 'Import', 'ipabuse-firewall' ), 'secondary', 'ipabuse_import_submit', false ); ?>
 				</form>
 			</div>
@@ -397,6 +431,17 @@ function ipabuse_settings_page(): void {
 				</label>
 				<p>
 					<?php submit_button( __( 'Clear All Blocked IPs', 'ipabuse-firewall' ), 'delete', 'submit', false ); ?>
+				</p>
+			</form>
+
+			<hr />
+
+			<p class="description"><?php esc_html_e( 'Flushes this plugin\'s cached data (block-status lookups and the blocked-IP count). Does not change any blocked IPs. Useful after restoring a database backup or switching object-cache backends.', 'ipabuse-firewall' ); ?></p>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<?php wp_nonce_field( 'ipabuse_clear_cache' ); ?>
+				<input type="hidden" name="action" value="ipabuse_clear_cache" />
+				<p>
+					<?php submit_button( __( 'Clear Cache', 'ipabuse-firewall' ), 'secondary', 'submit', false ); ?>
 				</p>
 			</form>
 		</div>

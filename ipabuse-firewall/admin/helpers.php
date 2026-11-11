@@ -53,7 +53,66 @@ function ipabuse_render_status_banner(): void {
 				? esc_html__( 'API key configured', 'ipabuse-firewall' )
 				: esc_html__( 'API key not set', 'ipabuse-firewall' );
 			?>
+			<?php if ( ! $has_api_key ) : ?>
+				<button type="button" class="button button-small ipabuse-connect-trigger">
+					<?php esc_html_e( 'Connect Your Account', 'ipabuse-firewall' ); ?>
+				</button>
+			<?php endif; ?>
 		</span>
+	</div>
+	<?php
+	if ( ! $has_api_key ) {
+		ipabuse_render_connect_wizard_modal();
+	}
+}
+
+/**
+ * Render the (initially hidden) "Connect Your Account" setup wizard modal.
+ * Opened by any `.ipabuse-connect-trigger` button via connect-wizard.js.
+ * Only ever collects site URL (fixed, from this site) + admin email — never
+ * a password, and the response never contains an API key; the admin always
+ * gets that by logging into ipabuse.org themselves and pasting it in below.
+ */
+function ipabuse_render_connect_wizard_modal(): void {
+	?>
+	<div id="ipabuse-connect-modal" class="ipabuse-modal-overlay" hidden>
+		<div class="ipabuse-modal" role="dialog" aria-modal="true" aria-labelledby="ipabuse-connect-modal-title">
+			<button type="button" class="ipabuse-modal-close" aria-label="<?php esc_attr_e( 'Close', 'ipabuse-firewall' ); ?>">&times;</button>
+			<h2 id="ipabuse-connect-modal-title">
+				<span class="dashicons dashicons-admin-network" aria-hidden="true"></span>
+				<?php esc_html_e( 'Connect Your Account', 'ipabuse-firewall' ); ?>
+			</h2>
+			<div class="ipabuse-connect-step" data-step="form">
+				<p class="description">
+					<?php esc_html_e( 'This creates (or finds) your ipabuse.org account for this site. No password is set here — you\'ll verify your email and sign in at ipabuse.org to get your API key.', 'ipabuse-firewall' ); ?>
+				</p>
+				<p>
+					<label for="ipabuse-connect-site-url"><strong><?php esc_html_e( 'Site URL', 'ipabuse-firewall' ); ?></strong></label><br />
+					<input type="text" id="ipabuse-connect-site-url" class="regular-text" value="<?php echo esc_attr( home_url( '/' ) ); ?>" readonly />
+				</p>
+				<p>
+					<label for="ipabuse-connect-email"><strong><?php esc_html_e( 'Admin Email', 'ipabuse-firewall' ); ?></strong></label><br />
+					<input type="email" id="ipabuse-connect-email" class="regular-text" value="<?php echo esc_attr( get_option( 'admin_email' ) ); ?>" />
+				</p>
+				<p class="ipabuse-connect-error" role="alert"></p>
+				<p>
+					<button type="button" class="button button-primary" id="ipabuse-connect-submit">
+						<?php esc_html_e( 'Create My Account', 'ipabuse-firewall' ); ?>
+					</button>
+				</p>
+			</div>
+			<div class="ipabuse-connect-step" data-step="done" hidden>
+				<p class="ipabuse-connect-success"></p>
+				<p>
+					<a class="button button-primary" href="https://www.ipabuse.org/settings?tab=api" target="_blank" rel="noopener">
+						<?php esc_html_e( 'Open ipabuse.org to Get My API Key', 'ipabuse-firewall' ); ?>
+					</a>
+				</p>
+				<p class="description">
+					<?php esc_html_e( 'Once you have your key, paste it into the API Key field on this plugin\'s Settings page.', 'ipabuse-firewall' ); ?>
+				</p>
+			</div>
+		</div>
 	</div>
 	<?php
 }

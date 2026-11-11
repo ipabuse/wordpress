@@ -10,9 +10,6 @@ defined( 'ABSPATH' ) || exit;
 
 class IPAbuse_Blocker {
 
-	/** Number of IPs to INSERT per query during bulk_block(). */
-	private const BATCH_SIZE = 200;
-
 	/** MySQL DATETIME format, always computed/compared in UTC. */
 	private const MYSQL_DATETIME = 'Y-m-d H:i:s';
 
@@ -43,8 +40,11 @@ class IPAbuse_Blocker {
 	/** How long an IP caught scanning stays blocked (seconds). */
 	private const SCAN_BLOCK_TTL = HOUR_IN_SECONDS;
 
-	/** Object cache group for is_blocked() results. */
+	/** Object cache group for is_blocked() and count() results. */
 	private const CACHE_GROUP = 'ipabuse_firewall';
+
+	/** Cache key for count()'s result. */
+	private const COUNT_CACHE_KEY = 'total_count';
 
 	/**
 	 * How long an is_blocked() result is cached. Short enough that a manual
@@ -60,6 +60,22 @@ class IPAbuse_Blocker {
 	/** @return string Cache key for is_blocked() results for a given IP. */
 	private static function cache_key( string $ip ): string {
 		return 'blocked_' . md5( $ip );
+	}
+
+	/** Invalidate count()'s cached result. Called by every method that changes the blocked-IPs table. */
+	private static function invalidate_count_cache(): void {
+		wp_cache_delete( self::COUNT_CACHE_KEY, self::CACHE_GROUP );
+	}
+
+	/**
+	 * Flush every cached value this class keeps (is_blocked() results and the
+	 * count() total) in one go. Exposed for the admin "Clear Cache" action and
+	 * the `wp ipabuse clear-cache` CLI command — useful after restoring a DB
+	 * backup or switching object-cache backends, when per-key invalidation
+	 * from block()/unblock()/etc. can't have run against the new state.
+	 */
+	public static function clear_cache(): void {
+		wp_cache_flush_group( self::CACHE_GROUP );
 	}
 
 	/**
@@ -78,7 +94,8 @@ class IPAbuse_Blocker {
 			'REMOTE_ADDR',
 		];
 		foreach ( $candidates as $key ) {
-			$val = $_SERVER[ $key ] ?? '';
+			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.MissingUnslash, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- filter_var( FILTER_VALIDATE_IP ) below is the actual sanitizer; anything that isn't a valid IP is discarded.
+			$val = wp_unslash( $_SERVER[ $key ] ?? '' );
 			$ip  = filter_var( trim( explode( ',', $val )[0] ), FILTER_VALIDATE_IP );
 			if ( $ip ) {
 				return $ip;
@@ -117,9 +134,10 @@ class IPAbuse_Blocker {
 		$table = $wpdb->prefix . 'ipabuse_blocked';
 		$now   = gmdate( self::MYSQL_DATETIME );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- custom table; result is already cached via wp_cache_set() below.
 		$exists = $wpdb->get_var( $wpdb->prepare(
-			"SELECT id FROM `{$table}` WHERE ip = %s AND (expires_at = '0000-00-00 00:00:00' OR expires_at > %s) LIMIT 1",
+			"SELECT id FROM %i WHERE ip = %s AND (expires_at = '0000-00-00 00:00:00' OR expires_at > %s) LIMIT 1",
+			$table,
 			$ip,
 			$now
 		) );
@@ -149,10 +167,11 @@ class IPAbuse_Blocker {
 			? gmdate( self::MYSQL_DATETIME, time() + $ttl )
 			: '0000-00-00 00:00:00';
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- custom table write; cache updated explicitly below.
 		$wpdb->query( $wpdb->prepare(
-			"INSERT INTO `{$table}` (ip, score, country, blocked_at, expires_at) VALUES (%s, %d, %s, NOW(), %s)
+			"INSERT INTO %i (ip, score, country, blocked_at, expires_at) VALUES (%s, %d, %s, NOW(), %s)
 			 ON DUPLICATE KEY UPDATE score = VALUES(score), country = VALUES(country), blocked_at = NOW(), expires_at = VALUES(expires_at)",
+			$table,
 			$ip,
 			$score,
 			$country,
@@ -160,10 +179,11 @@ class IPAbuse_Blocker {
 		) );
 
 		wp_cache_set( self::cache_key( $ip ), true, self::CACHE_GROUP, self::CACHE_TTL );
+		self::invalidate_count_cache();
 	}
 
 	/**
-	 * Bulk-block IPs from an API blocklist response using batched INSERTs.
+	 * Bulk-block IPs from an API blocklist response.
 	 *
 	 * @param array $items  Array of IP strings or objects with ipAddress/reputationScore/country.
 	 * @param int   $ttl    Seconds until expiry; 0 = permanent.
@@ -176,32 +196,27 @@ class IPAbuse_Blocker {
 
 		global $wpdb;
 		$table      = $wpdb->prefix . 'ipabuse_blocked';
+		$now        = gmdate( self::MYSQL_DATETIME );
 		$expires_at = $ttl > 0
 			? gmdate( self::MYSQL_DATETIME, time() + $ttl )
 			: '0000-00-00 00:00:00';
 
-		// Process in batches to avoid hitting query size limits.
-		foreach ( array_chunk( $pairs, self::BATCH_SIZE ) as $batch ) {
-			$placeholders = [];
-			$values       = [];
-			foreach ( $batch as $row ) {
-				$placeholders[] = '(%s, %d, %s, NOW(), %s)';
-				$values[]       = $row['ip'];
-				$values[]       = $row['score'];
-				$values[]       = $row['country'];
-				$values[]       = $expires_at;
-			}
-			$sql = "INSERT INTO `{$table}` (ip, score, country, blocked_at, expires_at) VALUES "
-				. implode( ', ', $placeholders )
-				. ' ON DUPLICATE KEY UPDATE score = VALUES(score), country = VALUES(country), blocked_at = NOW(), expires_at = VALUES(expires_at)';
-
-			// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-			$wpdb->query( $wpdb->prepare( $sql, $values ) );
-		}
-
 		foreach ( $pairs as $row ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- custom table write; cache updated explicitly below. $wpdb->replace() relies on the `ip` UNIQUE key to insert-or-overwrite; `id` isn't referenced anywhere else, so the new id it assigns on a conflict is harmless.
+			$wpdb->replace(
+				$table,
+				[
+					'ip'         => $row['ip'],
+					'score'      => $row['score'],
+					'country'    => $row['country'],
+					'blocked_at' => $now,
+					'expires_at' => $expires_at,
+				],
+				[ '%s', '%d', '%s', '%s', '%s' ]
+			);
 			wp_cache_set( self::cache_key( $row['ip'] ), true, self::CACHE_GROUP, self::CACHE_TTL );
 		}
+		self::invalidate_count_cache();
 	}
 
 	/**
@@ -305,9 +320,10 @@ class IPAbuse_Blocker {
 	private static function log_history( string $ip, string $action, string $reason, int $score = 0 ): void {
 		global $wpdb;
 		$table = $wpdb->prefix . 'ipabuse_block_history';
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- append-only audit log; not read from a hot path, so not worth caching.
 		$wpdb->query( $wpdb->prepare(
-			"INSERT INTO `{$table}` (ip, action, reason, score, created_at) VALUES (%s, %s, %s, %d, NOW())",
+			'INSERT INTO %i (ip, action, reason, score, created_at) VALUES (%s, %s, %s, %d, NOW())',
+			$table,
 			$ip,
 			$action,
 			$reason,
@@ -324,9 +340,9 @@ class IPAbuse_Blocker {
 	public static function get_history( int $limit = 20 ): array {
 		global $wpdb;
 		$table = $wpdb->prefix . 'ipabuse_block_history';
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- admin-only, low-traffic read (Dashboard/Blocked IPs history panel).
 		$rows = $wpdb->get_results(
-			$wpdb->prepare( "SELECT ip, action, reason, score, created_at FROM `{$table}` ORDER BY created_at DESC LIMIT %d", $limit ),
+			$wpdb->prepare( 'SELECT ip, action, reason, score, created_at FROM %i ORDER BY created_at DESC LIMIT %d', $table, $limit ),
 			ARRAY_A
 		);
 		return $rows ?: [];
@@ -347,9 +363,10 @@ class IPAbuse_Blocker {
 		$table  = $wpdb->prefix . 'ipabuse_block_history';
 		$cutoff = gmdate( self::MYSQL_DATETIME, time() - $days * DAY_IN_SECONDS );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- retention cleanup; not read from a hot path.
 		return (int) $wpdb->query( $wpdb->prepare(
-			"DELETE FROM `{$table}` WHERE created_at <= %s",
+			'DELETE FROM %i WHERE created_at <= %s',
+			$table,
 			$cutoff
 		) );
 	}
@@ -455,13 +472,14 @@ class IPAbuse_Blocker {
 		$table = $wpdb->prefix . 'ipabuse_blocked';
 		$since = gmdate( self::MYSQL_DATETIME, time() - $hours * HOUR_IN_SECONDS );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- admin-only dashboard widget aggregate; not worth caching separately from is_blocked()'s per-IP cache.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT DATE_FORMAT( blocked_at, '%%Y-%%m-%%d %%H:00:00' ) AS hour_bucket, COUNT(*) AS cnt
-				 FROM `{$table}`
+				 FROM %i
 				 WHERE blocked_at >= %s
 				 GROUP BY hour_bucket",
+				$table,
 				$since
 			),
 			ARRAY_A
@@ -495,28 +513,46 @@ class IPAbuse_Blocker {
 		$now    = gmdate( self::MYSQL_DATETIME );
 		$offset = max( 0, ( max( 1, $page ) - 1 ) * $per_page );
 
-		$where  = '(expires_at = \'0000-00-00 00:00:00\' OR expires_at > %s)';
-		$values = [ $now ];
-
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- admin Blocked IPs list; paginated, searched, and cheap enough to read live.
 		if ( '' !== $search ) {
-			$where   .= ' AND ip LIKE %s';
-			$values[] = '%' . $wpdb->esc_like( $search ) . '%';
+			$like = '%' . $wpdb->esc_like( $search ) . '%';
+
+			$total = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT COUNT(*) FROM %i WHERE (expires_at = '0000-00-00 00:00:00' OR expires_at > %s) AND ip LIKE %s",
+				$table,
+				$now,
+				$like
+			) );
+
+			$items = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT ip, score, country, blocked_at, expires_at FROM %i WHERE (expires_at = '0000-00-00 00:00:00' OR expires_at > %s) AND ip LIKE %s ORDER BY blocked_at DESC LIMIT %d OFFSET %d",
+					$table,
+					$now,
+					$like,
+					$per_page,
+					$offset
+				),
+				ARRAY_A
+			);
+		} else {
+			$total = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT COUNT(*) FROM %i WHERE (expires_at = '0000-00-00 00:00:00' OR expires_at > %s)",
+				$table,
+				$now
+			) );
+
+			$items = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT ip, score, country, blocked_at, expires_at FROM %i WHERE (expires_at = '0000-00-00 00:00:00' OR expires_at > %s) ORDER BY blocked_at DESC LIMIT %d OFFSET %d",
+					$table,
+					$now,
+					$per_page,
+					$offset
+				),
+				ARRAY_A
+			);
 		}
-
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
-		$total = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM `{$table}` WHERE {$where}", $values ) );
-
-		$values[] = $per_page;
-		$values[] = $offset;
-
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
-		$items = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT ip, score, country, blocked_at, expires_at FROM `{$table}` WHERE {$where} ORDER BY blocked_at DESC LIMIT %d OFFSET %d",
-				$values
-			),
-			ARRAY_A
-		);
 
 		return [ 'items' => $items ?: [], 'total' => $total ];
 	}
@@ -528,6 +564,7 @@ class IPAbuse_Blocker {
 		$deleted = $wpdb->delete( $table, [ 'ip' => $ip ], [ '%s' ] );
 		if ( $deleted ) {
 			wp_cache_delete( self::cache_key( $ip ), self::CACHE_GROUP );
+			self::invalidate_count_cache();
 			self::log_history( $ip, 'UNBLOCKED', 'MANUAL' );
 		}
 	}
@@ -536,12 +573,9 @@ class IPAbuse_Blocker {
 	 * Unblock every currently-blocked IP. Logged as a single history entry
 	 * rather than one per IP, since a clear-all is one admin action, not N.
 	 *
-	 * Does not explicitly clear per-IP is_blocked() cache entries — there's
-	 * no bounded way to enumerate which IPs might be cached without a
-	 * persistent-cache-specific API. Any stale "still blocked" cache entry
-	 * self-expires within CACHE_TTL (60s), and clear_all() is a rare,
-	 * deliberate admin action, not something that needs to take effect
-	 * instantaneously for every in-flight request.
+	 * Uses clear_cache() rather than per-IP invalidation — there's no bounded
+	 * way to enumerate which IPs might be cached without a persistent-cache-
+	 * specific API, but a group flush covers all of them in one call.
 	 *
 	 * @return int Rows deleted.
 	 */
@@ -549,9 +583,12 @@ class IPAbuse_Blocker {
 		global $wpdb;
 		$table = $wpdb->prefix . 'ipabuse_blocked';
 		// TRUNCATE always reports 0 affected rows in $wpdb->query(), so count first.
-		$count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM `{$table}`" ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- rare, deliberate admin action (see docblock); not a hot path.
+		$count = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM %i', $table ) );
 		if ( $count > 0 ) {
-			$wpdb->query( "TRUNCATE TABLE `{$table}`" ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.SchemaChange -- same as above.
+			$wpdb->query( $wpdb->prepare( 'TRUNCATE TABLE %i', $table ) );
+			self::clear_cache();
 			self::log_history( '*', 'UNBLOCKED', 'MANUAL_CLEAR_ALL' );
 		}
 		return $count;
@@ -559,14 +596,22 @@ class IPAbuse_Blocker {
 
 	/** Return total blocked IP count (excluding expired entries). */
 	public static function count(): int {
+		$cached = wp_cache_get( self::COUNT_CACHE_KEY, self::CACHE_GROUP, false, $found );
+		if ( $found ) {
+			return (int) $cached;
+		}
+
 		global $wpdb;
 		$table = $wpdb->prefix . 'ipabuse_blocked';
 		$now   = gmdate( self::MYSQL_DATETIME );
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		return (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT COUNT(*) FROM `{$table}` WHERE expires_at = '0000-00-00 00:00:00' OR expires_at > %s",
+		$count = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM %i WHERE expires_at = '0000-00-00 00:00:00' OR expires_at > %s",
+			$table,
 			$now
 		) );
+
+		wp_cache_set( self::COUNT_CACHE_KEY, $count, self::CACHE_GROUP, self::CACHE_TTL );
+		return $count;
 	}
 
 	/**
@@ -578,11 +623,16 @@ class IPAbuse_Blocker {
 		global $wpdb;
 		$table = $wpdb->prefix . 'ipabuse_blocked';
 		$now   = gmdate( self::MYSQL_DATETIME );
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		return (int) $wpdb->query( $wpdb->prepare(
-			"DELETE FROM `{$table}` WHERE expires_at != '0000-00-00 00:00:00' AND expires_at <= %s",
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- cron-triggered cleanup; not a hot path.
+		$deleted = (int) $wpdb->query( $wpdb->prepare(
+			"DELETE FROM %i WHERE expires_at != '0000-00-00 00:00:00' AND expires_at <= %s",
+			$table,
 			$now
 		) );
+		if ( $deleted > 0 ) {
+			self::invalidate_count_cache();
+		}
+		return $deleted;
 	}
 
 	/**
@@ -603,11 +653,16 @@ class IPAbuse_Blocker {
 		$table  = $wpdb->prefix . 'ipabuse_blocked';
 		$cutoff = gmdate( self::MYSQL_DATETIME, time() - $days * DAY_IN_SECONDS );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		return (int) $wpdb->query( $wpdb->prepare(
-			"DELETE FROM `{$table}` WHERE blocked_at <= %s",
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- retention cleanup; not a hot path.
+		$deleted = (int) $wpdb->query( $wpdb->prepare(
+			'DELETE FROM %i WHERE blocked_at <= %s',
+			$table,
 			$cutoff
 		) );
+		if ( $deleted > 0 ) {
+			self::invalidate_count_cache();
+		}
+		return $deleted;
 	}
 
 	/**
@@ -632,10 +687,14 @@ class IPAbuse_Blocker {
 		$table        = $wpdb->prefix . 'ipabuse_blocked';
 		$placeholders = implode( ', ', array_fill( 0, count( $current_ips ), '%s' ) );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
-		return (int) $wpdb->query( $wpdb->prepare(
-			"DELETE FROM `{$table}` WHERE ip NOT IN ({$placeholders})",
-			$current_ips
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- cron-triggered sync cleanup; not a hot path.
+		$deleted = (int) $wpdb->query( $wpdb->prepare(
+			"DELETE FROM %i WHERE ip NOT IN ({$placeholders})", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $placeholders is a generated run of literal `%s` tokens (one per $current_ips entry), each bound below; there is no WPCS-recognized way to parameterize a variable-length IN(...) list.
+			array_merge( [ $table ], $current_ips )
 		) );
+		if ( $deleted > 0 ) {
+			self::invalidate_count_cache();
+		}
+		return $deleted;
 	}
 }

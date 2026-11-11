@@ -3,24 +3,24 @@
  * Plugin Name: IPAbuse Firewall
  * Plugin URI:  https://developer.ipabuse.org/docs/plugins/wordpress
  * Description: Automatically blocks malicious IPs using the ipabuse.org reputation database. Reports brute-force logins and syncs a daily blocklist.
- * Version:     1.5.0
+ * Version:     1.6.0
  * Author:      ipabuse.org
  * Author URI:  https://ipabuse.org
  * License:     GPL-2.0-or-later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: ipabuse-firewall
  * Requires PHP: 7.4
- * Requires at least: 5.9
+ * Requires at least: 6.2
  *
  * @package IPAbuse_Firewall
  */
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IPABUSE_VERSION', '1.5.0' );
+define( 'IPABUSE_VERSION', '1.6.0' );
 define( 'IPABUSE_PLUGIN_FILE', __FILE__ );
 define( 'IPABUSE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
-define( 'IPABUSE_API_BASE', 'https://api.ipabuse.org/v1/plugin' );
+defined( 'IPABUSE_API_BASE' ) || define( 'IPABUSE_API_BASE', 'https://api.ipabuse.org/v1/plugin' );
 define( 'IPABUSE_OPT_PREFIX', 'ipabuse_' );
 
 // ── Autoload classes ──────────────────────────────────────────────────────────
@@ -367,6 +367,29 @@ add_action( 'admin_enqueue_scripts', function ( string $hook ): void {
 		);
 	}
 
+	if ( '' === ipabuse_opt( 'api_key', '' ) && in_array( $hook, [
+		'toplevel_page_' . IPABUSE_MENU_SLUG,
+		IPABUSE_MENU_SLUG . '_page_' . IPABUSE_MENU_SLUG . '-settings',
+	], true ) ) {
+		wp_enqueue_script(
+			'ipabuse-firewall-connect-wizard',
+			plugins_url( 'admin/js/connect-wizard.js', IPABUSE_PLUGIN_FILE ),
+			[],
+			IPABUSE_VERSION,
+			true
+		);
+		wp_localize_script( 'ipabuse-firewall-connect-wizard', 'IPAbuseConnect', [
+			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+			'nonce'   => wp_create_nonce( 'ipabuse_connect_account' ),
+			'labels'  => [
+				'emailRequired' => __( 'Please enter an email address.', 'ipabuse-firewall' ),
+				'connecting'    => __( 'Connecting…', 'ipabuse-firewall' ),
+				'createAccount' => __( 'Create My Account', 'ipabuse-firewall' ),
+				'requestFailed' => __( 'Request failed. Please try again.', 'ipabuse-firewall' ),
+			],
+		] );
+	}
+
 	if ( IPABUSE_MENU_SLUG . '_page_' . IPABUSE_MENU_SLUG . '-lookup' !== $hook ) {
 		return;
 	}
@@ -493,6 +516,41 @@ function ipabuse_ajax_manual_report(): void {
 
 	/* translators: %s = reported IP address */
 	wp_send_json_success( [ 'message' => sprintf( __( '%s has been reported to ipabuse.org.', 'ipabuse-firewall' ), $ip ) ] );
+}
+
+add_action( 'wp_ajax_ipabuse_connect_account', 'ipabuse_ajax_connect_account' );
+
+/**
+ * AJAX handler for the "Connect Your Account" setup wizard. Starts account
+ * creation on ipabuse.org (site URL + admin email only — never a password,
+ * never the API key) and always returns the same generic success message
+ * regardless of whether the email already has an account there, matching
+ * what the ipabuse.org endpoint itself returns. The actual API key is only
+ * ever obtained by the admin, after they verify their email and log in at
+ * ipabuse.org, and is pasted into the Settings page by hand — this wizard
+ * never receives or stores it on their behalf.
+ */
+function ipabuse_ajax_connect_account(): void {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_send_json_error( [ 'message' => __( 'Permission denied.', 'ipabuse-firewall' ) ], 403 );
+	}
+	check_ajax_referer( 'ipabuse_connect_account', 'nonce' );
+
+	$email = sanitize_email( wp_unslash( $_POST['email'] ?? '' ) );
+	if ( ! is_email( $email ) ) {
+		wp_send_json_error( [ 'message' => __( 'Please enter a valid email address.', 'ipabuse-firewall' ) ] );
+	}
+
+	$site_url = sanitize_url( home_url( '/' ) );
+
+	$r = IPAbuse_Api_Client::register_account( $email, $site_url );
+	if ( ! $r['ok'] ) {
+		wp_send_json_error( [ 'message' => $r['error'] ?? __( 'Something went wrong. Please try again.', 'ipabuse-firewall' ) ] );
+	}
+
+	wp_send_json_success( [
+		'message' => __( 'Check your inbox to verify your ipabuse.org account, then log in there to generate your API key.', 'ipabuse-firewall' ),
+	] );
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

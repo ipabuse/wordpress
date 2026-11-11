@@ -93,10 +93,13 @@ function ipabuse_blocked_ips_page(): void {
 		return;
 	}
 
+	// phpcs:ignore WordPress.Security.NonceVerification.Missing -- verified inside ipabuse_handle_bulk_action() itself before it acts on $_POST.
 	$notice = isset( $_POST['ipabuse_bulk_action'] ) ? ipabuse_handle_bulk_action() : '';
 
 	$per_page = 20;
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.MissingUnslash, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- read-only pagination (GET); (int) cast is itself a complete, safe sanitizer.
 	$page     = max( 1, (int) ( $_GET['paged'] ?? 1 ) );
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only search filter (GET); already properly sanitized via sanitize_text_field( wp_unslash( ... ) ).
 	$search   = sanitize_text_field( wp_unslash( $_GET['s'] ?? '' ) );
 
 	$result      = IPAbuse_Blocker::list_blocked( $per_page, $page, $search );

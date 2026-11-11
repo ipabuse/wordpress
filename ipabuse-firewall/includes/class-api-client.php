@@ -62,6 +62,28 @@ class IPAbuse_Api_Client {
 		] );
 	}
 
+	/**
+	 * Start account creation on ipabuse.org for the setup wizard. Unauthenticated
+	 * (there's no API key yet — that's the point) and deliberately never returns
+	 * anything beyond ok/error: the API key itself is only ever issued after the
+	 * admin verifies their email and logs in at ipabuse.org/settings?tab=api.
+	 *
+	 * @param  string $email     Site admin email, prefilled from WordPress.
+	 * @param  string $site_url  This site's URL, prefilled from WordPress.
+	 * @return array{ ok: bool, error?: string }
+	 */
+	public static function register_account( string $email, string $site_url ): array {
+		$response = wp_remote_post( rtrim( IPABUSE_API_BASE, '/' ) . '/register-account', [
+			'timeout' => 10,
+			'headers' => [
+				'Content-Type' => 'application/json',
+				'Accept'       => 'application/json',
+			],
+			'body'    => wp_json_encode( [ 'email' => $email, 'siteUrl' => $site_url ] ),
+		] );
+		return self::parse_response( $response );
+	}
+
 	// ── Private ───────────────────────────────────────────────────────────────
 
 	private function get( string $path, array $query = [] ): array {
@@ -73,7 +95,7 @@ class IPAbuse_Api_Client {
 			'timeout' => $this->timeout,
 			'headers' => $this->headers(),
 		] );
-		return $this->parse( $response );
+		return self::parse_response( $response );
 	}
 
 	private function post( string $path, array $body ): array {
@@ -82,7 +104,7 @@ class IPAbuse_Api_Client {
 			'headers' => $this->headers(),
 			'body'    => wp_json_encode( $body ),
 		] );
-		return $this->parse( $response );
+		return self::parse_response( $response );
 	}
 
 	private function headers(): array {
@@ -93,7 +115,7 @@ class IPAbuse_Api_Client {
 		];
 	}
 
-	private function parse( $response ): array {
+	private static function parse_response( $response ): array {
 		if ( is_wp_error( $response ) ) {
 			return [ 'ok' => false, 'error' => $response->get_error_message() ];
 		}

@@ -6,6 +6,7 @@
  * `wp ipabuse unblock <ip>`
  * `wp ipabuse sync`
  * `wp ipabuse status`
+ * `wp ipabuse clear-cache`
  *
  * @package IPAbuse_Firewall
  */
@@ -147,6 +148,20 @@ class IPAbuse_CLI_Command {
 				? gmdate( 'Y-m-d H:i:s', (int) ipabuse_opt( 'last_sync', 0 ) ) . ' UTC'
 				: 'never',
 		] ], [ 'enabled', 'blocking', 'reporting', 'api_connected', 'blocked_count', 'last_sync' ] );
+	}
+
+	/**
+	 * Flush this plugin's object cache (is_blocked() results and the total
+	 * blocked-IP count). Useful after restoring a DB backup or switching
+	 * object-cache backends, when the cache may no longer match the DB.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp ipabuse clear-cache
+	 */
+	public function clear_cache(): void {
+		IPAbuse_Blocker::clear_cache();
+		WP_CLI::success( 'Cache cleared.' );
 	}
 }
 
